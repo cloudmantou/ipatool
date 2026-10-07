@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+
+profile=${1:?profile is required}
+listen=${2:?listen address is required}
+case "$profile" in cn|us) ;; *) echo 'unsupported profile' >&2; exit 64 ;; esac
+
+credential_dir=${CREDENTIALS_DIRECTORY:?systemd credentials are required}
+IPATOOL_KEYCHAIN_PASSPHRASE=$(cat "$credential_dir/keychain-passphrase")
+export IPATOOL_KEYCHAIN_PASSPHRASE
+unset DBUS_SESSION_BUS_ADDRESS DISPLAY
+
+exec "${IPATOOL_BINARY:?versioned binary path is required}" \
+  --profile "$profile" --non-interactive serve \
+  --listen "$listen" \
+  --public-base-url "${IPATOOL_PUBLIC_BASE_URL:?public HTTPS origin is required}" \
+  --artifact-dir "/var/lib/ipatool-$profile/artifacts" \
+  --artifact-signing-key-file "$credential_dir/artifact-signing-key" \
+  --artifact-ttl 1h \
+  --artifact-max-bytes 1073741824 \
+  --artifact-max-storage-bytes 2147483648 \
+  --apple-email-credential-file "$credential_dir/apple-email" \
+  --apple-password-credential-file "$credential_dir/apple-password"

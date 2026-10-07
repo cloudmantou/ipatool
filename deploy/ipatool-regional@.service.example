@@ -1,0 +1,53 @@
+[Unit]
+Description=IPATool %i regional HTTP service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=ipatool-%i
+Group=ipatool-%i
+EnvironmentFile=/etc/ipatool/%i.env
+Environment=HOME=/var/lib/ipatool-%i
+Environment=XDG_CACHE_HOME=/var/lib/ipatool-%i/.cache
+UnsetEnvironment=DBUS_SESSION_BUS_ADDRESS DISPLAY
+StateDirectory=ipatool-%i
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/ipatool-%i
+LoadCredential=keychain-passphrase:/etc/ipatool/credentials/%i
+LoadCredential=artifact-signing-key:/etc/ipatool/credentials/%i-artifact-signing-key
+LoadCredential=apple-email:/etc/ipatool/credentials/%i-apple-email
+LoadCredential=apple-password:/etc/ipatool/credentials/%i-apple-password
+ExecStart=/usr/local/libexec/ipatool-regional-serve %i ${IPATOOL_LISTEN_ADDRESS}
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectClock=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+# Unicorn needs dynamically generated executable code.
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+ProtectProc=invisible
+ProcSubset=pid
+RemoveIPC=yes
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

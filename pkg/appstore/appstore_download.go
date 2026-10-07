@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	apphttp "github.com/majd/ipatool/v2/pkg/http"
 	"io"
 	gohttp "net/http"
 	"os"
@@ -28,6 +29,8 @@ type DownloadInput struct {
 	Progress          *progressbar.ProgressBar
 	ExternalVersionID string
 	Platform          Platform
+	// MaxBytes bounds server-side downloads; zero preserves CLI behavior.
+	MaxBytes int64
 }
 
 type DownloadOutput struct {
@@ -90,8 +93,24 @@ func (t *appstore) Download(input DownloadInput) (DownloadOutput, error) {
 	if len(res.Data.Items) == 0 {
 		return DownloadOutput{}, NewErrorWithMetadata(errors.New("invalid response"), res)
 	}
+	if input.MaxBytes > 0 && input.ExternalVersionID != "" {
+		if err := validateVersionedDownloadResponse(res, input.App, input.ExternalVersionID, "server download"); err != nil {
+			return DownloadOutput{}, err
+		}
+	}
 
 	item := res.Data.Items[0]
+	assetClient := t.httpClient
+	if input.MaxBytes > 0 {
+		if !IsAppleAssetURL(item.URL) {
+			return DownloadOutput{}, errors.New("untrusted Apple download URL")
+		}
+		ctx := input.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		assetClient = prepareHTTPClient{Client: t.httpClient, ctx: ctx}
+	}
 
 	version := "unknown"
 
@@ -116,7 +135,7 @@ func (t *appstore) Download(input DownloadInput) (DownloadOutput, error) {
 
 	tmpPath := fmt.Sprintf("%s.tmp", destination)
 
-	if err := t.downloadFile(input.Context, item.URL, tmpPath, input.Progress); err != nil {
+	if err := t.downloadFileWithClient(input.Context, item.URL, tmpPath, input.Progress, input.MaxBytes, assetClient); err != nil {
 		return DownloadOutput{}, fmt.Errorf("failed to download file: %w", err)
 	}
 
@@ -128,7 +147,7 @@ func (t *appstore) Download(input DownloadInput) (DownloadOutput, error) {
 		return DownloadOutput{}, fmt.Errorf("failed to validate package platform: %w", err)
 	}
 
-	artwork, err := t.downloadArtwork(input.Context, item.ArtworkURL)
+	artwork, err := t.downloadArtworkWithClient(input.Context, item.ArtworkURL, assetClient)
 	if err != nil {
 		return DownloadOutput{}, fmt.Errorf("failed to download artwork: %w", err)
 	}
@@ -232,7 +251,15 @@ type downloadResult struct {
 
 //nolint:nonamedreturns // Deferred close errors must propagate to callers.
 func (t *appstore) downloadFile(ctx context.Context, src, dst string, progress *progressbar.ProgressBar) (err error) {
-	req, err := t.httpClient.NewRequest("GET", src, nil)
+	return t.downloadFileBounded(ctx, src, dst, progress, 0)
+}
+
+func (t *appstore) downloadFileBounded(ctx context.Context, src, dst string, progress *progressbar.ProgressBar, maxBytes int64) (err error) {
+	return t.downloadFileWithClient(ctx, src, dst, progress, maxBytes, t.httpClient)
+}
+
+func (t *appstore) downloadFileWithClient(ctx context.Context, src, dst string, progress *progressbar.ProgressBar, maxBytes int64, client apphttp.Client[interface{}]) (err error) {
+	req, err := client.NewRequest("GET", src, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -265,7 +292,7 @@ func (t *appstore) downloadFile(ctx context.Context, src, dst string, progress *
 		req.Header.Add("range", fmt.Sprintf("bytes=%d-", stat.Size()))
 	}
 
-	res, err := t.httpClient.Do(req)
+	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -274,6 +301,9 @@ func (t *appstore) downloadFile(ctx context.Context, src, dst string, progress *
 	offset, remaining, total, complete, err := downloadResponseRange(res, stat.Size())
 	if err != nil {
 		return err
+	}
+	if maxBytes > 0 && (total > maxBytes || offset > maxBytes) {
+		return errors.New("download exceeds configured size limit")
 	}
 
 	if complete {
@@ -306,10 +336,16 @@ func (t *appstore) downloadFile(ctx context.Context, src, dst string, progress *
 	if remaining >= 0 {
 		body = io.LimitReader(body, remaining)
 	}
+	if maxBytes > 0 {
+		body = io.LimitReader(body, maxBytes-offset+1)
+	}
 
 	written, err := io.Copy(writer, body)
 	if err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
+	}
+	if maxBytes > 0 && offset+written > maxBytes {
+		return errors.New("download exceeds configured size limit")
 	}
 
 	if remaining >= 0 && written != remaining || total >= 0 && offset+written != total {

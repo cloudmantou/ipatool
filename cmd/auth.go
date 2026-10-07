@@ -7,6 +7,7 @@ import (
 
 	"github.com/avast/retry-go"
 	"github.com/majd/ipatool/v2/pkg/appstore"
+	"github.com/majd/ipatool/v2/pkg/server"
 	"github.com/spf13/cobra"
 )
 
@@ -24,13 +25,20 @@ func authCmd() *cobra.Command {
 }
 
 func loginCmd() *cobra.Command {
-	var email, password, authCode string
+	var email, password, authCode, emailFile, passwordFile string
 
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Login to the App Store",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			interactive := cmd.Context().Value(interactiveKey).(bool)
+			if emailFile != "" || passwordFile != "" {
+				creds, err := server.ReadLoginCredentials(emailFile, passwordFile)
+				if err != nil {
+					return err
+				}
+				email, password = creds.Email, creds.Password
+			}
 
 			if email == "" && !interactive {
 				return errors.New("an Apple ID is required when not running in interactive mode; use the \"--email\" flag")
@@ -84,7 +92,7 @@ func loginCmd() *cobra.Command {
 					if errors.Is(err, appstore.ErrAuthCodeRequired) && !interactive {
 						dependencies.Logger.Log().Msg("2FA code is required; run the command again and supply a code using the `--auth-code` flag")
 
-						return nil
+						return appstore.ErrAuthCodeRequired
 					}
 
 					return err
@@ -93,6 +101,7 @@ func loginCmd() *cobra.Command {
 				dependencies.Logger.Log().
 					Str("name", output.Account.Name).
 					Str("email", output.Account.Email).
+					Str("storeFront", output.Account.StoreFront).
 					Bool("success", true).
 					Send()
 
@@ -105,7 +114,7 @@ func loginCmd() *cobra.Command {
 				retry.RetryIf(func(err error) bool {
 					lastErr = err
 
-					return errors.Is(err, appstore.ErrAuthCodeRequired)
+					return interactive && errors.Is(err, appstore.ErrAuthCodeRequired)
 				}),
 			)
 		},
@@ -114,6 +123,8 @@ func loginCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&email, "email", "e", "", "Apple ID email address or phone number (required)")
 	cmd.Flags().StringVarP(&password, "password", "p", "", "password for the Apple ID (required)")
 	cmd.Flags().StringVar(&authCode, "auth-code", "", "2FA code for the Apple ID")
+	cmd.Flags().StringVar(&emailFile, "apple-email-credential-file", "", "protected file containing the Apple ID")
+	cmd.Flags().StringVar(&passwordFile, "apple-password-credential-file", "", "protected file containing the Apple password")
 
 	return cmd
 }
@@ -132,6 +143,7 @@ func infoCmd() *cobra.Command {
 			dependencies.Logger.Log().
 				Str("name", output.Account.Name).
 				Str("email", output.Account.Email).
+				Str("storeFront", output.Account.StoreFront).
 				Bool("success", true).
 				Send()
 

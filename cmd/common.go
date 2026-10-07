@@ -14,6 +14,7 @@ import (
 	"github.com/majd/ipatool/v2/pkg/http"
 	"github.com/majd/ipatool/v2/pkg/keychain"
 	"github.com/majd/ipatool/v2/pkg/log"
+	"github.com/majd/ipatool/v2/pkg/profile"
 	"github.com/majd/ipatool/v2/pkg/util"
 	"github.com/majd/ipatool/v2/pkg/util/machine"
 	"github.com/majd/ipatool/v2/pkg/util/operatingsystem"
@@ -23,6 +24,7 @@ import (
 
 var dependencies = Dependencies{}
 var keychainPassphrase string
+var accountProfile string
 
 type Dependencies struct {
 	Logger    log.Logger
@@ -106,10 +108,19 @@ func initWithCommand(cmd *cobra.Command) {
 	}
 
 	dependencies.OS = operatingsystem.New()
+	if keychainPassphrase == "" {
+		keychainPassphrase = dependencies.OS.Getenv("IPATOOL_KEYCHAIN_PASSPHRASE")
+	}
 	dependencies.Machine = machine.New(machine.Args{OS: dependencies.OS})
 	stateDirectory := util.Must(prepareStateDirectory(dependencies.OS, dependencies.Machine.HomeDirectory()))
-	dependencies.CookieJar = newCookieJar(stateDirectory)
 	dependencies.Keychain = newKeychain(stateDirectory, interactive)
+	cookieDirectory := stateDirectory
+	if accountProfile != "" && accountProfile != "default" {
+		cookieDirectory = util.Must(profile.Directory(stateDirectory, accountProfile))
+		util.Must(0, dependencies.OS.MkdirAll(cookieDirectory, 0700))
+		dependencies.Keychain = util.Must(profile.Keychain(dependencies.Keychain, accountProfile))
+	}
+	dependencies.CookieJar = newCookieJar(cookieDirectory)
 	dependencies.AppStore = appstore.NewAppStore(appstore.Args{
 		CookieJar:       dependencies.CookieJar,
 		OperatingSystem: dependencies.OS,

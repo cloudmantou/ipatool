@@ -82,6 +82,10 @@ $ go generate ./...
 $ go test -v ./...
 ```
 
+## Regional cloud service
+
+The `codex/cloud-regional-login` branch adds isolated CN / US profiles and compatible HTTP preparation / download endpoints. See [regional service documentation](docs/CLOUD_SERVER.md) and the [systemd service example](deploy/ipatool-regional@.service.example) for operation, authentication, deployment and validation.
+
 ## License
 
 ipatool is released under the [MIT license](https://github.com/majd/ipatool/blob/main/LICENSE).

@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	apphttp "github.com/majd/ipatool/v2/pkg/http"
 	"io"
 	"net/http"
 )
 
 func (t *appstore) downloadArtwork(ctx context.Context, url string) ([]byte, error) {
+	return t.downloadArtworkWithClient(ctx, url, t.httpClient)
+}
+
+func (t *appstore) downloadArtworkWithClient(ctx context.Context, url string, client apphttp.Client[interface{}]) ([]byte, error) {
 	if url == "" {
 		return nil, nil
 	}
@@ -17,12 +22,12 @@ func (t *appstore) downloadArtwork(ctx context.Context, url string) ([]byte, err
 		ctx = context.Background()
 	}
 
-	req, err := t.httpClient.NewRequest(http.MethodGet, url, nil)
+	req, err := client.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	res, err := t.httpClient.Do(req.WithContext(ctx))
+	res, err := client.Do(req.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
